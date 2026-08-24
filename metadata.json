@@ -1,0 +1,6 @@
+{
+  "name": "Local Telegram Task Assistant",
+  "description": "RFC Task Agent: Local autonomous task automation robot for Telegram operators. Features Telegram bot & user session synchronization, real-time automation engine with auto-next pipeline, workflow recorder, browser controller, phone provider dispatch, and crash recovery.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
