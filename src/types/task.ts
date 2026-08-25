@@ -158,10 +158,6 @@ export interface TelegramChatUIState {
   parsedKeyboard?: TelegramParsedKeyboard;
   botCommands?: TelegramBotCommand[];
   botMenuButton?: TelegramBotMenuButton;
-  botHasOpenInterface?: boolean;
-  openButtonVisible?: boolean;
-  openButtonType?: string;
-  openButtonAction?: string;
   activeInlineButtons?: Array<{
     messageId: string;
     rows: TelegramInlineButton[][];

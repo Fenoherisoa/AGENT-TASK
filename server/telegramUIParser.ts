@@ -105,72 +105,12 @@ export class TelegramUIParser {
     // 2. Inline Keyboards (associated per message ID)
     const activeInlineButtons = this.parseInlineKeyboards(messages.slice(-15));
 
-    // 3. Bot commands and Bot Menu Button
+    // 3. Bot commands
     const botCommands = options?.botCommands && options.botCommands.length > 0 ? options.botCommands : undefined;
     const botMenuButton = options?.botMenuButton;
 
-    // Detect if bot exposes a persistent OPEN / Web App / Menu interface (RFC 2.3)
-    let botHasOpenInterface = false;
-    let openButtonType: string | undefined;
-    let openButtonAction: string | undefined;
-
-    if (isBot) {
-      if (botMenuButton && (botMenuButton.url || botMenuButton.type === 'web_app')) {
-        botHasOpenInterface = true;
-        openButtonType = botMenuButton.type;
-        openButtonAction = botMenuButton.url || undefined;
-      } else {
-        // Search in messages for web_app / start app button
-        for (const m of messages) {
-          if (m.inlineButtons) {
-            for (const row of m.inlineButtons) {
-              for (const btn of row) {
-                if (btn.type === 'web_app' && btn.webAppUrl) {
-                  botHasOpenInterface = true;
-                  openButtonType = 'web_app';
-                  openButtonAction = btn.webAppUrl;
-                  break;
-                }
-              }
-              if (botHasOpenInterface) break;
-            }
-          }
-          if (botHasOpenInterface) break;
-        }
-
-        // Also check if reply keyboard contains web_app button
-        if (!botHasOpenInterface && replyKeyboard?.rows) {
-          for (const row of replyKeyboard.rows) {
-            for (const btn of row) {
-              if (btn.type === 'web_app' && btn.webAppUrl) {
-                botHasOpenInterface = true;
-                openButtonType = 'web_app';
-                openButtonAction = btn.webAppUrl;
-                break;
-              }
-            }
-            if (botHasOpenInterface) break;
-          }
-        }
-      }
-    }
-
     // 4. Structured Controls Extraction (Strictly typed for Automation Engine)
     const structuredControls: TelegramStructuredControl[] = [];
-
-    // Add persistent Bot Open Action if available
-    if (botHasOpenInterface) {
-      structuredControls.push({
-        id: 'bot_open_action',
-        type: 'web_app',
-        label: botMenuButton?.text || 'OPEN',
-        url: openButtonAction,
-        payload: openButtonAction,
-        callbackDataAvailable: false,
-        enabled: true,
-        visible: true
-      });
-    }
 
     // Add Reply Keyboard buttons
     if (replyKeyboard && replyKeyboard.rows) {
@@ -268,10 +208,6 @@ export class TelegramUIParser {
       parsedKeyboard: parsedKeyboard || undefined,
       botCommands,
       botMenuButton,
-      botHasOpenInterface,
-      openButtonVisible: botHasOpenInterface,
-      openButtonType,
-      openButtonAction,
       activeInlineButtons: activeInlineButtons.length > 0 ? activeInlineButtons : undefined,
       structuredControls,
       updatedAt: new Date().toISOString()

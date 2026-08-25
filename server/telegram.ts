@@ -336,7 +336,6 @@ export class TelegramConnectionManager {
   private chatReplyKeyboards: Map<string, TelegramReplyKeyboard | null> = new Map();
   private chatParsedKeyboards: Map<string, TelegramParsedKeyboard | null> = new Map();
   private chatBotCommands: Map<string, TelegramBotCommand[]> = new Map();
-  private chatBotMenuButtons: Map<string, TelegramBotMenuButton | null> = new Map();
   private chatLinkedDiscussions: Map<string, string> = new Map();
 
   // Avatar & Media Cache (TTL 1hr for avatars, 6hrs for message media)
@@ -2307,76 +2306,22 @@ export class TelegramConnectionManager {
     const messages = db.getTelegramMessages(chatId, 30);
     let replyKeyboard = this.chatReplyKeyboards.get(chatId) ?? null;
     let botCommands = this.chatBotCommands.get(chatId);
-    let botMenuButton = this.chatBotMenuButtons.get(chatId);
     let linkedDiscussionChatId = this.chatLinkedDiscussions.get(chatId);
 
-    // If bot and commands/menuButton not cached, fetch from MTProto
-    if (dbChat.type === 'bot' && this.userClient && this.isClientInitialized) {
-      if (!botCommands || botCommands.length === 0 || botMenuButton === undefined) {
-        try {
-          const peer = await this.userClient.getInputEntity(chatId).catch(() => chatId);
-          const full: any = await this.userClient.invoke(new Api.users.GetFullUser({ id: peer })).catch(() => null);
-          if (full?.fullUser?.botInfo?.commands && (!botCommands || botCommands.length === 0)) {
-            botCommands = full.fullUser.botInfo.commands.map((c: any) => ({
-              command: `/${c.command}`,
-              description: c.description
-            }));
-            this.chatBotCommands.set(chatId, botCommands);
-          }
-
-          if (botMenuButton === undefined) {
-            // Check if full user has menuButton or if MTProto GetBotMenuButton is available
-            try {
-              const menuRes: any = await this.userClient.invoke(new Api.bots.GetBotMenuButton({ userId: peer })).catch(() => null);
-              if (menuRes) {
-                if (menuRes.className === 'BotMenuButton' || menuRes.url) {
-                  botMenuButton = {
-                    type: 'web_app',
-                    text: menuRes.text || 'Ouvrir Bot',
-                    url: menuRes.url
-                  };
-                } else if (menuRes.className === 'BotMenuButtonCommands') {
-                  botMenuButton = {
-                    type: 'commands',
-                    text: 'Menu'
-                  };
-                } else if (menuRes.className === 'BotMenuButtonDefault') {
-                  botMenuButton = {
-                    type: 'default'
-                  };
-                }
-              }
-            } catch {
-              // fallback gracefully
-            }
-
-            if (!botMenuButton) {
-              // Inspect messages for web_app / start app buttons
-              for (const m of messages) {
-                if (m.inlineButtons) {
-                  for (const r of m.inlineButtons) {
-                    for (const b of r) {
-                      if (b.type === 'web_app' && b.webAppUrl) {
-                        botMenuButton = {
-                          type: 'web_app',
-                          text: b.text || 'Ouvrir WebApp',
-                          url: b.webAppUrl
-                        };
-                        break;
-                      }
-                    }
-                    if (botMenuButton) break;
-                  }
-                }
-                if (botMenuButton) break;
-              }
-            }
-
-            this.chatBotMenuButtons.set(chatId, botMenuButton || null);
-          }
-        } catch (err: any) {
-          logger.debug(`Could not fetch bot information for ${chatId}: ${err.message}`, { module: 'TELEGRAM' });
+    // If bot and commands not cached, fetch from MTProto
+    if (dbChat.type === 'bot' && (!botCommands || botCommands.length === 0) && this.userClient && this.isClientInitialized) {
+      try {
+        const peer = await this.userClient.getInputEntity(chatId).catch(() => chatId);
+        const full: any = await this.userClient.invoke(new Api.users.GetFullUser({ id: peer })).catch(() => null);
+        if (full?.fullUser?.botInfo?.commands) {
+          botCommands = full.fullUser.botInfo.commands.map((c: any) => ({
+            command: `/${c.command}`,
+            description: c.description
+          }));
+          this.chatBotCommands.set(chatId, botCommands);
         }
+      } catch (err: any) {
+        logger.debug(`Could not fetch bot commands for ${chatId}: ${err.message}`, { module: 'TELEGRAM' });
       }
     }
 
@@ -2400,7 +2345,6 @@ export class TelegramConnectionManager {
       replyKeyboard,
       parsedKeyboard,
       botCommands,
-      botMenuButton: botMenuButton || undefined,
       linkedDiscussionChatId
     });
 
@@ -2408,7 +2352,7 @@ export class TelegramConnectionManager {
   }
 
   /**
-   * Automation Engine Structured Workspace State (Requirement 13 & 27)
+   * Automation Engine Structured Workspace State (Requirement 27)
    */
   public getWorkspaceState(chatId?: string): any {
     const chats = db.getTelegramChats();
@@ -2419,72 +2363,16 @@ export class TelegramConnectionManager {
     const replyKb = targetChatId ? (this.chatReplyKeyboards.get(targetChatId) || null) : null;
     const parsedKb = targetChatId ? (this.chatParsedKeyboards.get(targetChatId) || null) : null;
     const botCmds = targetChatId ? (this.chatBotCommands.get(targetChatId) || []) : [];
-    const botMenuBtn = targetChatId ? (this.chatBotMenuButtons.get(targetChatId) || null) : null;
-
-    // Detect persistent bot open interface (RFC 2.3)
-    const isBot = activeChat?.type === 'bot';
-    let botHasOpenInterface = false;
-    let openButtonType: string | null = null;
-    let openButtonAction: string | null = null;
-
-    if (isBot) {
-      if (botMenuBtn && (botMenuBtn.url || botMenuBtn.type === 'web_app')) {
-        botHasOpenInterface = true;
-        openButtonType = botMenuBtn.type;
-        openButtonAction = botMenuBtn.url || null;
-      } else {
-        // Search in messages for web_app / start app button
-        for (const m of messages) {
-          if (m.inlineButtons) {
-            for (const row of m.inlineButtons) {
-              for (const btn of row) {
-                if (btn.type === 'web_app' && btn.webAppUrl) {
-                  botHasOpenInterface = true;
-                  openButtonType = 'web_app';
-                  openButtonAction = btn.webAppUrl;
-                  break;
-                }
-              }
-              if (botHasOpenInterface) break;
-            }
-          }
-          if (botHasOpenInterface) break;
-        }
-
-        if (!botHasOpenInterface && replyKb?.rows) {
-          for (const row of replyKb.rows) {
-            for (const btn of row) {
-              if (btn.type === 'web_app' && btn.webAppUrl) {
-                botHasOpenInterface = true;
-                openButtonType = 'web_app';
-                openButtonAction = btn.webAppUrl;
-                break;
-              }
-            }
-            if (botHasOpenInterface) break;
-          }
-        }
-      }
-    }
-
-    const openButtonVisible = botHasOpenInterface;
-    const currentBotChatId = isBot && targetChatId ? targetChatId : null;
 
     return {
       currentChat: activeChat,
       currentMessage: latestMsg,
       latestMessage: latestMsg,
       unreadMessages: chats.reduce((acc, c) => acc + (c.unreadCount || 0), 0),
-      botHasOpenInterface,
-      openButtonVisible,
-      openButtonType,
-      openButtonAction,
-      currentBotChatId,
       messageButtons: {
         replyKeyboard: replyKb,
         parsedKeyboard: parsedKb,
         botCommands: botCmds,
-        botMenuButton: botMenuBtn,
         latestInlineButtons: latestMsg?.inlineButtons || null
       },
       keyboardState: parsedKb || (replyKb ? {

@@ -243,11 +243,6 @@ export const TelegramChats: React.FC<TelegramChatsProps> = ({
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   const [isBotCommandsMenuOpen, setIsBotCommandsMenuOpen] = useState(false);
 
-  // Bot Workspace Persistent View (RFC 2.3)
-  const [isBotWorkspaceOpen, setIsBotWorkspaceOpen] = useState(false);
-  const [botWorkspaceUrl, setBotWorkspaceUrl] = useState<string>('');
-  const [botWorkspaceTitle, setBotWorkspaceTitle] = useState<string>('');
-
   // Theme & Appearance (Telegram Dark / Light)
   const [tgTheme, setTgTheme] = useState<'dark' | 'light'>(() => {
     return (localStorage.getItem('rfc_tg_theme') as 'dark' | 'light') || 'dark';
@@ -374,33 +369,19 @@ export const TelegramChats: React.FC<TelegramChatsProps> = ({
     }
   }, [chats, selectedChatId]);
 
-  // Structured Workspace State Synchronization for Automation Engine (Requirement 13 & 27)
+  // Structured Workspace State Synchronization for Automation Engine (Requirement 27)
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const activeChat = chats.find(c => String(c.id) === String(selectedChatId)) || null;
       const latestMsg = messages.length > 0 ? messages[messages.length - 1] : null;
-      const isBot = activeChat?.type === 'bot';
-      const botHasOpenInterface = Boolean(
-        chatUIState?.botHasOpenInterface ||
-        chatUIState?.openButtonVisible ||
-        chatUIState?.botMenuButton?.url ||
-        (isBot && messages.some(m => m.inlineButtons?.some(row => row.some(b => b.type === 'web_app' || (b.type === 'url' && b.url?.includes('t.me'))))))
-      );
-
       (window as any).__TELEGRAM_WORKSPACE_STATE__ = {
         currentChat: activeChat,
         currentMessage: latestMsg,
         latestMessage: latestMsg,
         unreadMessages: chats.reduce((acc, c) => acc + (c.unreadCount || 0), 0),
-        botHasOpenInterface,
-        openButtonVisible: botHasOpenInterface,
-        openButtonType: chatUIState?.openButtonType || (botHasOpenInterface ? 'web_app' : null),
-        openButtonAction: chatUIState?.openButtonAction || chatUIState?.botMenuButton?.url || null,
-        currentBotChatId: isBot && selectedChatId ? selectedChatId : null,
         messageButtons: {
           replyKeyboard: chatUIState?.replyKeyboard || null,
           botCommands: chatUIState?.botCommands || [],
-          botMenuButton: chatUIState?.botMenuButton || null,
           latestInlineButtons: latestMsg?.inlineButtons || null
         },
         replyCapability: activeChat?.capabilities?.canReply ?? false,
@@ -413,71 +394,6 @@ export const TelegramChats: React.FC<TelegramChatsProps> = ({
       };
     }
   }, [selectedChatId, messages, chatUIState, chats, isTelegramConnected]);
-
-  // Detect whether current bot chat supports a persistent OPEN / WebApp / Interface button
-  const selectedChat = chats.find(c => String(c.id) === String(selectedChatId)) || null;
-  const botOpenSupported = useMemo(() => {
-    if (!selectedChat || selectedChat.type !== 'bot') return false;
-    if (chatUIState?.botHasOpenInterface || chatUIState?.openButtonVisible) return true;
-    if (chatUIState?.botMenuButton?.url || (chatUIState?.botMenuButton && chatUIState.botMenuButton.type === 'web_app')) return true;
-    const hasWebAppInline = messages.some(m =>
-      m.inlineButtons?.some(row => row.some(btn => btn.type === 'web_app' || (btn.type === 'url' && btn.url?.includes('t.me'))))
-    );
-    if (hasWebAppInline) return true;
-    if (chatUIState?.replyKeyboard?.rows?.some(r => r.some(b => b.type === 'web_app'))) return true;
-    return false;
-  }, [selectedChat, chatUIState, messages]);
-
-  const handleOpenBotInterface = () => {
-    if (!selectedChat) return;
-    let targetUrl = chatUIState?.openButtonAction || chatUIState?.botMenuButton?.url;
-    if (!targetUrl) {
-      for (const m of messages) {
-        if (m.inlineButtons) {
-          for (const row of m.inlineButtons) {
-            for (const btn of row) {
-              if (btn.type === 'web_app' && btn.webAppUrl) {
-                targetUrl = btn.webAppUrl;
-                break;
-              }
-              if (btn.type === 'url' && btn.url) {
-                targetUrl = btn.url;
-                break;
-              }
-            }
-            if (targetUrl) break;
-          }
-        }
-        if (targetUrl) break;
-      }
-    }
-
-    if (!targetUrl && chatUIState?.replyKeyboard?.rows) {
-      for (const row of chatUIState.replyKeyboard.rows) {
-        for (const btn of row) {
-          if (btn.type === 'web_app' && btn.webAppUrl) {
-            targetUrl = btn.webAppUrl;
-            break;
-          }
-        }
-        if (targetUrl) break;
-      }
-    }
-
-    if (targetUrl) {
-      setBotWorkspaceUrl(targetUrl);
-      setBotWorkspaceTitle(`${selectedChat.title} — Bot WebApp`);
-      setIsBotWorkspaceOpen(true);
-    } else if (chatUIState?.botCommands && chatUIState.botCommands.some(c => c.command === '/start')) {
-      handleBotCommandClick('/start');
-      setFeedback({ type: 'info', message: 'Commande /start envoyée au bot.' });
-    } else {
-      const fallbackUrl = `https://web.telegram.org/a/#?tgaddr=tg%3A%2F%2Fresolve%3Fdomain%3D${selectedChat.username || selectedChat.id}`;
-      setBotWorkspaceUrl(fallbackUrl);
-      setBotWorkspaceTitle(`${selectedChat.title} — Interface Bot`);
-      setIsBotWorkspaceOpen(true);
-    }
-  };
 
   // Handle timeline scroll to detect if user is near bottom
   const handleTimelineScroll = () => {
@@ -1448,22 +1364,6 @@ NOTES: Inscription formulaire partenaire`;
                   >
                     <Pin className="w-4 h-4" />
                   </button>
-
-                  {/* Persistent OPEN Control for Bots with WebApp/Interface (Requirement 8, 9, 10, 11, 12, 14, 15) */}
-                  {botOpenSupported && (
-                    <button
-                      type="button"
-                      onClick={handleOpenBotInterface}
-                      className="flex items-center space-x-1.5 px-3 py-1 rounded-lg bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-lg shadow-emerald-950/50 border border-emerald-400/40 transition transform active:scale-95 flex-shrink-0"
-                      title="Ouvrir l'interface / Web App de ce bot Telegram (persistant)"
-                    >
-                      <Compass className="w-3.5 h-3.5 text-emerald-200" />
-                      <span className="font-mono font-bold uppercase tracking-wider">
-                        {chatUIState?.botMenuButton?.text || 'OPEN'}
-                      </span>
-                      <ExternalLink className="w-3 h-3 text-emerald-200" />
-                    </button>
-                  )}
 
                   {/* Monitoring Toggle */}
                   <button
